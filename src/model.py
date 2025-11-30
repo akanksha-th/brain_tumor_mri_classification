@@ -27,14 +27,18 @@ def count_parameters(model: nn.Module) -> int:
     "Count trainable parameters in a model"
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-def set_parameter_requires_grad(model: nn.Module, requires_grad: bool):
-    "Freeze or unfreeze all parameters of a model"
-    for param in model.parameters():
-        param.requires_grad = requires_grad
+def freeze_all(model: nn.Module):
+    """Freeze backbone."""
+    for p in model.parameters():
+        p.requires_grad = False
+        
+def unfreeze_all(model: nn.Module):
+    """Unfreeze entire model."""
+    for p in model.parameters():
+        p.requires_grad = True
 
 
 # ------ Model Implementations ------
-
 # ==============================
 # 1. ResNet
 # ==============================
@@ -89,50 +93,44 @@ class EfficientNetMRI(nn.Module):
         weights = weights_enum.DEFAULT if pretrained else None
         
         self.backbone = model_func(weights=weights)
-        in_features = self.backbone.fc.in_features
-        self.backbone.fc = nn.Linear(in_features, num_classes)
+        in_features = self.backbone.classifier[-1].in_features
+        self.backbone.classifier[-1] = nn.Linear(in_features, num_classes)
         
     def forward(self, x):
         return self.backbone(x)
 
 
 # ==============================
-# 3. Custom Modules
+# 3. Custom Lightweight CNN
 # ==============================
 
-@dataclass
-class CustomConfig:
-    in_ch: int = 3
-    num_classes: int = 4
-    kernel_size: int = 3
-    stride: int = 1
-    padding: int = 1
-    bias: bool =False
-
 class SepConv2d(nn.Module):
-    """Separable Convolution = Depthwise Convolution + Pointwise Convolution"""
-    def __init__(self, config = CustomConfig()):
+    """depthwise separable convolution"""
+
+    def __init__(self, in_ch, out_ch, k=3, stride=1, padding=1):
         super().__init__()
-        self.depth = nn.Conv2d(config.in_ch, config.in_ch, kernel_size=config.kernel_size, stride=config.stride,
-                               padding=config.padding, groups=config.in_ch, bias=config.bias)
-        self.point = nn.Conv2d(config.in_ch, config.in_ch, kernel_size=1, stride=1, bias=config.bias)
+        self.depthwise = nn.Conv2d(
+            in_ch, in_ch, kernel_size=k, stride=stride,
+            padding=padding, groups=in_ch
+        )
+        self.pointwise = nn.Conv2d(in_ch, out_ch, kernel_size=1)
+
     def forward(self, x):
-        x = self.depth(x)
-        x = self.point(x)
-        return x
+        return self.pointwise(self.depthwise(x))
 
 
 class SEBlock(nn.Module):
-    """Squeeze-and-Excitation Block"""
+    """Squeeze-and-Excitation block"""
+
     def __init__(self, channels, reduction=16):
         super().__init__()
-        reduced = max(1, channels // reduction)
+        hidden = max(1, channels // reduction)
         self.pool = nn.AdaptiveAvgPool2d(1)
-        self.fc1 = nn.Linear(channels, reduced)
-        self.fc2 = nn.Linear(reduced, channels)
+        self.fc1 = nn.Linear(channels, hidden)
+        self.fc2 = nn.Linear(hidden, channels)
 
     def forward(self, x):
-        b, c, _, _ = x.size()
+        b, c, _, _ = x.shape
         y = self.pool(x).view(b, c)
         y = torch.relu(self.fc1(y))
         y = torch.sigmoid(self.fc2(y)).view(b, c, 1, 1)
@@ -140,54 +138,87 @@ class SEBlock(nn.Module):
 
 
 class ConvBlock(nn.Module):
-    """ConvBlock: SepConv -> BN -> MaxPool -> SEBlock"""
+    """SepConv -> BN -> ReLU -> MaxPool -> SEBlock"""
+
     def __init__(self, in_ch, out_ch):
         super().__init__()
         self.seq = nn.Sequential(
-            SepConv2d(in_ch, out_ch, kernel_size=3, padding=1),
+            SepConv2d(in_ch, out_ch),
             nn.BatchNorm2d(out_ch),
             nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.MaxPool2d(2),
             SEBlock(out_ch)
         )
 
     def forward(self, x):
-        x = self.seq(x)
-        return x
+        return self.seq(x)
 
 
 class LightCNN(nn.Module):
-    def __init__(self, in_channels=3, num_classes=4):
+    """Compact CNN for MRI classification."""
+
+    def __init__(self, in_ch=3, num_classes=4):
         super().__init__()
-        self.block1 = ConvBlock(in_channels, 32)
+        self.block1 = ConvBlock(in_ch, 32)
         self.block2 = ConvBlock(32, 64)
         self.block3 = ConvBlock(64, 128)
+
         self.gap = nn.AdaptiveAvgPool2d(1)
-        self.fc1 = nn.Linear(128, 128)
-        self.drop1 = nn.Dropout(0.3)
-        self.fc2 = nn.Linear(128, 64)
-        self.drop2 = nn.Dropout(0.4)
-        self.fc3 = nn.Linear(64, num_classes)
+        self.fc = nn.Sequential(
+            nn.Linear(128, 128),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(64, num_classes)
+        )
 
     def forward(self, x):
         x = self.block1(x)
         x = self.block2(x)
         x = self.block3(x)
-        x = self.gap(x)
-        x = x.view(x.size(0), -1)
-        x = torch.relu(self.fc1(x))
-        x = self.drop1(x)
-        x = torch.relu(self.fc2(x))
-        x = self.drop2(x)
-        logits = self.fc3(x)
-        return logits
+        x = self.gap(x).view(x.size(0), -1)
+        return self.fc(x)
 
 
 # ------ Model Factory ------
 class ModelFactory:
-    pass
+    """Registry + builder for all architectures."""
+    registry = {
+        "resnet_18": lambda num_classes, pretrained: ResNetMRI("resnet18", num_classes, pretrained),
+        "resnet_34": lambda num_classes, pretrained: ResNetMRI("resnet34", num_classes, pretrained),
+        "resnet_50": lambda num_classes, pretrained: ResNetMRI("resnet50", num_classes, pretrained),
+        
+        "efficientnet_b0": lambda num_classes, pretrained: EfficientNetMRI("efficientnet_b0", num_classes, pretrained),
+        "efficientnet_b1": lambda num_classes, pretrained: EfficientNetMRI("efficientnet_b1", num_classes, pretrained),
+        
+        "lightcnn": lambda num_classes, pretrained: LightCNN(3, num_classes),
+    }
+
+    @staticmethod
+    def get_model(name: str, num_classes: int = 4, pretrained: bool = True, finetune: bool = False):
+        name = name.lower()
+        if name not in ModelFactory.registry:
+            raise ValueError(f"Unsupported model: {name}")
+
+        model = ModelFactory.registry[name](num_classes, pretrained)
+
+        if not finetune:
+            freeze_all(model)
+            for p in model.parameters():
+                if p.ndim == 2:
+                    p.requires_grad = True
+        else:
+            unfreeze_all(model)
+
+        logger.info(f"Created Model: {name} | pretrained={pretrained}, finetune={finetune}")
+        logger.info(f"Trainable Parameters: {count_parameters(model)}")
+
+        return model
 
 
 if __name__ == "__main__":
     m = ModelFactory.get_model("resnet18", num_classes=4, pretrained=False, finetune=True)
+    print(model)
     print("Model OK. Total params: ", count_parameters(m))
