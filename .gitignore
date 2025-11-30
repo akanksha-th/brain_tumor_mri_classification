@@ -1,1 +1,107 @@
+# -----------------------------
+# PYTHON
+# -----------------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pdb
+*.pkl
+*.swp
+*.log
+
+# Virtual environments
+venv/
+.env/
+.venv/
+env/
+ENV/
+
+# Byte-compiled
+*.so
+*.dll
+*.dylib
+
+# -----------------------------
+# JUPYTER NOTEBOOKS
+# -----------------------------
+.ipynb_checkpoints/
+*.ipynb_checkpoints/*
+
+# Avoid saving huge notebook output cells
+# (Optional, but recommended if notebooks get large)
+**/.ipynb_checkpoints/*
+*.nb.html
+*/.jupyter_cache/
+
+
+# -----------------------------
+# LOGS, CACHE, TEMP
+# -----------------------------
+logs/
+*.log
+*.tmp
+*.temp
+*.bak
+*.old
+*.cache
+.cache/
+__cache__/
+*.pid
+
+# HuggingFace cache
+.huggingface/
+transformers_cache/
+~/.cache/huggingface/
+
+# Pip cache
+pip-selfcheck.json
+
+# -----------------------------
+# OS / EDITOR FILES
+# -----------------------------
+.DS_Store
+Thumbs.db
+ehthumbs.db
+*.lnk
+
+# VSCode
+.vscode/
+*.code-workspace
+
+# PyCharm
+.idea/
+*.iml
+
+# -----------------------------
+# ENVIRONMENT / SECRET KEYS
+# -----------------------------
+*.env
+.env.*
+.envrc
+*.secret
+secrets/
+config.ini
+config.json
+
+# -----------------------------
+# MODEL WEIGHTS / CHECKPOINTS
+# -----------------------------
+*.bin
+*.safetensors
+*.pt
+*.pth
+*.ckpt
+
+# -----------------------------
+# BUILD / DIST
+# -----------------------------
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+MANIFEST
+
 .data/
+.data/*
