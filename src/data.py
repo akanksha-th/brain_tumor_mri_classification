@@ -22,7 +22,7 @@ def get_transforms(cfg: Config) -> Dict[str, transforms.Compose]:
 
     valid_tfms = transforms.Compose([
         transforms.Resize((img_size, img_size)),
-        transfors.ToTensor(),
+        transforms.ToTensor(),
         transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
     ])
 
@@ -38,7 +38,7 @@ def get_datasets(cfg: Config, transforms_dict: Dict[str, transforms.Compose]):
         "train": datasets.ImageFolder(train_path, transform=transforms_dict["train"]),
         "valid": datasets.ImageFolder(valid_path, transform=transforms_dict["valid"]),
     }
-    test_path = os.path.join(base, test_dir)
+    test_path = os.path.join(base, cfg.test_dir)
     if os.path.exists(test_path):
         datasets_map["test"] = datasets.ImageFolder(test_path, transform=transforms_dict["test"])
     return datasets_map

@@ -9,7 +9,7 @@ from torchvision import transforms
 from PIL import Image
 from pathlib import Path
 
-from src.models import ModelFactory
+from model import ModelFactory
 
 
 class MRIInference:

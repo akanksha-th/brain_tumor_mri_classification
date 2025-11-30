@@ -34,6 +34,8 @@ ENV/
 *.nb.html
 */.jupyter_cache/
 
+weights/
+
 
 # -----------------------------
 # LOGS, CACHE, TEMP
